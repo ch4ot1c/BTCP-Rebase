@@ -49,7 +49,9 @@ public:
         return !(a == b);
     }
 
-    std::string ToString() const;
+    std::string ToString() const {
+        return strprintf("JSOutPoint(%s, %d, %d)", hash.ToString().substr(0,10), js, n);
+    }
 };
 
 class CNoteData

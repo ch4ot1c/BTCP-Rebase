@@ -16,6 +16,8 @@
 #include <script/ismine.h>
 #include <script/sign.h>
 #include <util.h>
+#include <consensus/reorg.h>
+#include <consensus/consensus.h>
 #include <wallet/crypter.h>
 #include <wallet/coinselection.h>
 #include <wallet/joinsplit.h>
@@ -61,6 +63,10 @@ static const unsigned int DEFAULT_TX_CONFIRM_TARGET = 6;
 static const bool DEFAULT_WALLET_RBF = false;
 static const bool DEFAULT_WALLETBROADCAST = true;
 static const bool DEFAULT_DISABLE_WALLET = false;
+//! Size of note witness cache
+//  Should be large enough that we can expect not to reorg beyond our cache
+//  unless there is some exceptional network disruption.
+static const unsigned int NOTE_WITNESS_CACHE_SIZE = MAX_REORG_LENGTH + 1;
 
 static const int64_t TIMESTAMP_MIN = 0;
 
@@ -1310,12 +1316,14 @@ public:
 
 protected:
     /**
+    * Z
     * pindex is the new tip being connected.
     */
     void IncrementNoteWitnesses(const CBlockIndex* pindex,
                                 const CBlock* pblock,
                                 ZCIncrementalMerkleTree& tree);
     /**
+    * Z
     * pindex is the old tip being disconnected.
     */
     void DecrementNoteWitnesses(const CBlockIndex* pindex);

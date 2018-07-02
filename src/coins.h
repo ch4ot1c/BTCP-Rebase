@@ -268,6 +268,8 @@ protected:
      */
     mutable uint256 hashBlock;
     mutable CCoinsMap cacheCoins;
+
+    // Z
     mutable uint256 hashAnchor;
     mutable CAnchorsMap cacheAnchors;
     mutable CNullifiersMap cacheNullifiers;

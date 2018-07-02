@@ -348,6 +348,7 @@ enum class MemPoolRemovalReason {
     EXPIRY,      //! Expired from mempool
     SIZELIMIT,   //! Removed in size limiting
     REORG,       //! Removed for reorganization
+    REANCHORED,  //! Removed because joinsplit anchor changed
     BLOCK,       //! Removed for block
     CONFLICT,    //! Removed for conflict with in-block transaction
     REPLACED     //! Removed for replacement
@@ -487,6 +488,7 @@ public:
 
     mutable CCriticalSection cs;
     indexed_transaction_set mapTx GUARDED_BY(cs);
+    std::map<uint256, const CTransaction*> mapNullifiers;
 
     using txiter = indexed_transaction_set::nth_index<0>::type::const_iterator;
     std::vector<std::pair<uint256, txiter> > vTxHashes; //!< All tx witness hashes/entries in mapTx, in random order
@@ -546,6 +548,7 @@ public:
 
     void removeRecursive(const CTransaction &tx, MemPoolRemovalReason reason = MemPoolRemovalReason::UNKNOWN);
     void removeForReorg(const CCoinsViewCache *pcoins, unsigned int nMemPoolHeight, int flags);
+    void removeWithAnchor(const uint256 &invalidRoot);
     void removeConflicts(const CTransaction &tx);
     void removeForBlock(const std::vector<CTransactionRef>& vtx, unsigned int nBlockHeight);
 
@@ -712,6 +715,7 @@ protected:
 
 public:
     CCoinsViewMemPool(CCoinsView* baseIn, const CTxMemPool& mempoolIn);
+    bool GetNullifier(const uint256 &nf) const;
     bool GetCoin(const COutPoint &outpoint, Coin &coin) const override;
 };
 

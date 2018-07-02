@@ -14,6 +14,7 @@
 #include <consensus/merkle.h>
 #include <consensus/tx_verify.h>
 #include <consensus/validation.h>
+#include <consensus/joinsplit.cpp>
 #include <cuckoocache.h>
 #include <fork.h>
 #include <hash.h>
@@ -572,8 +573,22 @@ static bool AcceptToMemoryPoolWorker(const CChainParams& chainparams, CTxMemPool
         *pfMissingInputs = false;
     }
 
+    // Node operator can choose to reject tx by number of transparent inputs
+    static_assert(std::numeric_limits<size_t>::max() >= std::numeric_limits<int64_t>::max(), "size_t too small");
+    size_t limit = (size_t)gArgs.GetArg("-mempooltxinputlimit", 0);
+    if (limit > 0) {
+        size_t n = tx.vin.size();
+        if (n > limit) {
+            LogPrint(BCLog::MEMPOOLREJ, "Dropping txid %s : too many transparent inputs %zu > limit %zu\n", tx.GetHash().ToString(), n, limit );
+            return false;
+        }
+    }
+
     if (!CheckTransaction(tx, state))
         return false; // state filled in by CheckTransaction
+
+    if (!CheckTransactionJoinSplits(tx, state))
+        return false; // state filled in by CheckTransactionJoinSplits
 
     // Coinbase is only valid in a block, not as a loose transaction
     if (tx.IsCoinBase())
@@ -640,6 +655,15 @@ static bool AcceptToMemoryPoolWorker(const CChainParams& chainparams, CTxMemPool
                 }
 
                 setConflicts.insert(ptxConflicting->GetHash());
+            }
+        }
+    }
+
+    for (const JSDescription &joinsplit : tx.vjoinsplit) {
+        for (const uint256 &nf : joinsplit.nullifiers) {
+            if (pool.mapNullifiers.count(nf))
+            {
+                return false;
             }
         }
     }
@@ -1350,8 +1374,8 @@ void UpdateCoins(const CTransaction& tx, CCoinsViewCache& inputs, CTxUndo &txund
     }
 
     // spend nullifiers
-    for(const JSDescription &joinsplit : tx.vjoinsplit) {
-        for(const uint256 &nf : joinsplit.nullifiers) {
+    for (const JSDescription &joinsplit : tx.vjoinsplit) {
+        for (const uint256 &nf : joinsplit.nullifiers) {
             inputs.SetNullifier(nf, true);
         }
     }
@@ -1658,8 +1682,8 @@ DisconnectResult CChainState::DisconnectBlock(const CBlock& block, const CBlockI
         }
 
         // unspend nullifiers
-        for(const JSDescription &joinsplit : tx.vjoinsplit) {
-            for(const uint256 &nf : joinsplit.nullifiers) {
+        for (const JSDescription &joinsplit : tx.vjoinsplit) {
+            for (const uint256 &nf : joinsplit.nullifiers) {
                 view.SetNullifier(nf, false);
             }
         }
@@ -2031,10 +2055,9 @@ bool CChainState::ConnectBlock(const CBlock& block, CValidationState& state, CBl
         }
         UpdateCoins(tx, view, i == 0 ? undoDummy : blockundo.vtxundo.back(), pindex->nHeight);
 
-        for(const JSDescription &joinsplit : tx.vjoinsplit) {
-            for(const uint256 &note_commitment : joinsplit.commitments) {
+        for (const JSDescription &joinsplit : tx.vjoinsplit) {
+            for (const uint256 &note_commitment : joinsplit.commitments) {
                 // Insert the note commitments into our temporary tree.
-
                 tree.append(note_commitment);
             }
         }
@@ -2329,6 +2352,12 @@ bool CChainState::DisconnectTip(CValidationState& state, const CChainParams& cha
             auto it = disconnectpool->queuedTx.get<insertion_order>().begin();
             mempool.removeRecursive(**it, MemPoolRemovalReason::REORG);
             disconnectpool->removeEntry(it);
+        }
+        // Z
+        if (anchorBeforeDisconnect != anchorAfterDisconnect) {
+            // The anchor may not change between block disconnects,
+            // in which case we don't want to evict from the mempool yet!
+            mempool.removeWithAnchor(anchorBeforeDisconnect);
         }
     }
 
@@ -3972,10 +4001,10 @@ bool static LoadBlockIndexDB(const CChainParams& chainparams)
     // Check whether we need to continue reindexing
     bool fReindexing = false;
     pblocktree->ReadReindexing(fReindexing);
-    if(fReindexing) fReindex = true;
+    if (fReindexing) fReindex = true;
 
     // Fill in-memory data
-    for(const std::pair<uint256, CBlockIndex*>& item : mapBlockIndex)
+    for (const std::pair<uint256, CBlockIndex*>& item : mapBlockIndex)
     {
         CBlockIndex* pindex = item.second;
         // - This relationship will always be true even if pprev has multiple

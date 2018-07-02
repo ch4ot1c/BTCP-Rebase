@@ -387,6 +387,14 @@ bool CTxMemPool::addUnchecked(const uint256& hash, const CTxMemPoolEntry &entry,
     std::set<uint256> setParentTransactions;
     for (unsigned int i = 0; i < tx.vin.size(); i++) {
         mapNextTx.insert(std::make_pair(&tx.vin[i].prevout, &tx));
+
+        // Z
+        for (const JSDescription &joinsplit : tx.vjoinsplit) {
+            for (const uint256 &nf : joinsplit.nullifiers) {
+                mapNullifiers[nf] = &tx;
+            }
+        }
+        
         setParentTransactions.insert(tx.vin[i].prevout.hash);
     }
     // Don't bother worrying about child transactions of this one.
@@ -420,8 +428,16 @@ void CTxMemPool::removeUnchecked(txiter it, MemPoolRemovalReason reason)
 {
     NotifyEntryRemoved(it->GetSharedTx(), reason);
     const uint256 hash = it->GetTx().GetHash();
-    for (const CTxIn& txin : it->GetTx().vin)
+
+    // Z
+    for (const CTxIn& txin : it->GetTx().vin) {
         mapNextTx.erase(txin.prevout);
+        for (const JSDescription& joinsplit : it->GetTx().vjoinsplit) {
+            for (const uint256& nf : joinsplit.nullifiers) {
+                mapNullifiers.erase(nf);
+            }
+        }
+    }
 
     if (vTxHashes.size() > 1) {
         vTxHashes[it->vTxHashesIdx] = std::move(vTxHashes.back());
@@ -539,6 +555,32 @@ void CTxMemPool::removeForReorg(const CCoinsViewCache *pcoins, unsigned int nMem
     RemoveStaged(setAllRemoves, false, MemPoolRemovalReason::REORG);
 }
 
+// Z
+void CTxMemPool::removeWithAnchor(const uint256 &invalidRoot)
+{
+    // If a block is disconnected from the tip, and the root changed,
+    // we must invalidate transactions from the mempool which spend
+    // from that root -- almost as though they were spending coinbases
+    // which are no longer valid to spend due to coinbase maturity.
+    LOCK(cs);
+    std::list<CTransaction> transactionsToRemove;
+
+    for (auto it = mapTx.begin(); it != mapTx.end(); it++) {
+        const CTransaction& tx = it->GetTx();
+        for (const JSDescription& joinsplit : tx.vjoinsplit) {
+            if (joinsplit.anchor == invalidRoot) {
+                transactionsToRemove.push_back(tx);
+                break;
+            }
+        }
+    }
+
+    for (const CTransaction& tx : transactionsToRemove) {
+        std::list<CTransaction> removed;
+        removeRecursive(tx, MemPoolRemovalReason::REANCHORED);
+    }
+}
+
 void CTxMemPool::removeConflicts(const CTransaction &tx)
 {
     // Remove transactions which depend on inputs of tx, recursively
@@ -551,6 +593,20 @@ void CTxMemPool::removeConflicts(const CTransaction &tx)
             {
                 ClearPrioritisation(txConflict.GetHash());
                 removeRecursive(txConflict, MemPoolRemovalReason::CONFLICT);
+            }
+        }
+    }
+
+    // Z
+    for (const JSDescription &joinsplit : tx.vjoinsplit) {
+        for (const uint256 &nf : joinsplit.nullifiers) {
+            auto it = mapNullifiers.find(nf);
+            if (it != mapNullifiers.end()) {
+                const CTransaction &txConflict = *it->second;
+                if (txConflict != tx)
+                {
+                    removeRecursive(txConflict, MemPoolRemovalReason::CONFLICT);
+                }
             }
         }
     }
@@ -735,7 +791,14 @@ void CTxMemPool::check(const CCoinsViewCache *pcoins, const CChainParams& chainp
         assert(it2 != mapTx.end());
         assert(&tx == it->second);
     }
-
+    // Z
+    for (auto it = mapNullifiers.begin(); it != mapNullifiers.end(); it++) {
+        uint256 hash = it->second->GetHash();
+        auto it2 = mapTx.find(hash);
+        const CTransaction& tx = it2->GetTx();
+        assert(it2 != mapTx.end());
+        assert(&tx == it->second);
+    }
     assert(totalTxSize == checkTotal);
     assert(innerUsage == cachedInnerUsage);
 }
@@ -889,6 +952,13 @@ bool CTxMemPool::HasNoInputsOf(const CTransaction &tx) const
 }
 
 CCoinsViewMemPool::CCoinsViewMemPool(CCoinsView* baseIn, const CTxMemPool& mempoolIn) : CCoinsViewBacked(baseIn), mempool(mempoolIn) { }
+
+bool CCoinsViewMemPool::GetNullifier(const uint256 &nf) const {
+    if (mempool.mapNullifiers.count(nf))
+        return true;
+
+    return base->GetNullifier(nf);
+}
 
 bool CCoinsViewMemPool::GetCoin(const COutPoint &outpoint, Coin &coin) const {
     // If an entry in the mempool exists, always return that one, as it's guaranteed to never

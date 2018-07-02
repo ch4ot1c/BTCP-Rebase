@@ -108,6 +108,7 @@ public:
             }
             mapCoins.erase(it++);
         }
+        // Z
         for (CAnchorsMap::iterator it = mapAnchors.begin(); it != mapAnchors.end(); ) {
             if (it->second.entered) {
                 std::map<uint256, ZCIncrementalMerkleTree>::iterator ret =
@@ -119,6 +120,7 @@ public:
             }
             mapAnchors.erase(it++);
         }
+        // Z
         for (CNullifiersMap::iterator it = mapNullifiers.begin(); it != mapNullifiers.end(); ) {
             if (it->second.entered) {
                 mapNullifiers_[it->first] = true;

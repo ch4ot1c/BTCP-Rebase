@@ -5,6 +5,6 @@
 #ifndef BTCP_CONSENSUS_JOINSPLIT_H
 #define BTCP_CONSENSUS_JOINSPLIT_H
 
-bool CheckTransactionJoinsplits(const CTransaction& tx, CValidationState &state);
+bool CheckTransactionJoinSplits(const CTransaction& tx, CValidationState &state);
 
 #endif

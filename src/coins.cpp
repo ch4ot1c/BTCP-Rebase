@@ -94,6 +94,7 @@ bool CCoinsViewCache::GetAnchorAt(const uint256 &rt, ZCIncrementalMerkleTree &tr
     return true;
 }
 
+// Z
 bool CCoinsViewCache::GetNullifier(const uint256 &nullifier) const {
     CNullifiersMap::iterator it = cacheNullifiers.find(nullifier);
     if (it != cacheNullifiers.end())
@@ -408,9 +409,9 @@ bool CCoinsViewCache::HaveJoinSplitRequirements(const CTransaction& tx) const
 {
     std::unordered_map<uint256, ZCIncrementalMerkleTree, SaltedUint256Hasher> intermediates;
 
-    for(const JSDescription &joinsplit : tx.vjoinsplit)
+    for (const JSDescription &joinsplit : tx.vjoinsplit)
     {
-        for(const uint256& nullifier : joinsplit.nullifiers)
+        for (const uint256& nullifier : joinsplit.nullifiers)
         {
             if (GetNullifier(nullifier)) {
                 // If the nullifier is set, this transaction
@@ -427,7 +428,7 @@ bool CCoinsViewCache::HaveJoinSplitRequirements(const CTransaction& tx) const
             return false;
         }
 
-        for(const uint256& commitment : joinsplit.commitments)
+        for (const uint256& commitment : joinsplit.commitments)
         {
             tree.append(commitment);
         }
